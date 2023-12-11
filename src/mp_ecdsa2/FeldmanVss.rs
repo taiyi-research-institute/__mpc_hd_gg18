@@ -106,13 +106,16 @@ impl<E: Curve> VerifiableSS<E> {
                 }
             }
             let mut denum: Scalar<E> = Scalar::from(1);
-            for other_member_id in shares_of_all_signers.keys() {
-                if other_member_id != member_id {
-                    let xj_sub_xi: Scalar<E> = Scalar::from(*other_member_id) - &xi;
-                    denum = denum * xj_sub_xi;
+            for other_id in shares_of_all_signers.keys() {
+                if other_id == member_id {
+                    continue;
                 }
+                let xj_sub_xi: Scalar<E> = Scalar::from(*other_id) - &xi;
+                denum = denum * xj_sub_xi;
             }
-            denum = denum.invert().unwrap();
+            denum = denum
+                .invert()
+                .ifnone("AlgorithmException (VSS)", "denum is zero")?;
             lagrange_coef.push(num * denum * yi);
         }
         assert_throw!(lagrange_coef.len() > 1);
@@ -132,34 +135,51 @@ impl<E: Curve> VerifiableSS<E> {
     }
 
     pub fn validate_share_public(&self, ss_point: &Point<E>, index: u16) -> Outcome<()> {
-        let comm_to_point = self.get_point_commitment(index);
+        let comm_to_point = self.get_point_commitment(index).catch_()?;
         assert_throw!(*ss_point == comm_to_point, "VerifyShareFailed");
         Ok(())
     }
 
-    pub fn get_point_commitment(&self, member_id: u16) -> Point<E> {
+    pub fn get_point_commitment(&self, member_id: u16) -> Outcome<Point<E>> {
         let member_fe = Scalar::from(member_id);
         let mut it = self.commitments.iter().rev();
-        let mut comm = it.next().unwrap().clone();
+        let mut comm = it.next().ifnone_()?.clone();
         while let Some(x) = it.next() {
             comm = x + comm * &member_fe;
         }
-        comm
+        Ok(comm)
     }
 
-    // TODO
     // compute \lambda_{index,S}, a lagrangian coefficient that change the (t,n) scheme to (|S|,|S|)
     // used in http://stevengoldfeder.com/papers/GG18.pdf
     pub fn map_share_to_new_params(
-        _params: &ShamirSecretSharing,
-        index: u16,
-        s: &[u16],
-    ) -> Scalar<E> {
-        let j = (0u16..)
-            .zip(s)
-            .find_map(|(j, s_j)| if *s_j == index { Some(j) } else { None })
-            .expect("`s` doesn't include `index`");
-        let xs = s.iter().map(|x| Scalar::from(*x + 1)).collect::<Vec<_>>();
-        Polynomial::lagrange_basis(&Scalar::zero(), j, &xs)
+        member_id: u16,
+        shard_providers: HashSet<u16>,
+    ) -> Outcome<Scalar<E>> {
+        assert_throw!(shard_providers.contains(&member_id));
+        let x: Scalar<E> = Scalar::zero();
+        let x_j: Scalar<E> = Scalar::from(member_id);
+
+        let mut num: Scalar<E> = Scalar::from(1);
+        for other_id in shard_providers.iter() {
+            if *other_id == member_id {
+                continue;
+            }
+            let x_m: Scalar<E> = Scalar::from(*other_id);
+            num = num * (&x - &x_m);
+        }
+
+        let mut denum: Scalar<E> = Scalar::from(1);
+        for other_id in shard_providers.iter() {
+            if *other_id == member_id {
+                continue;
+            }
+            let x_m: Scalar<E> = Scalar::from(*other_id);
+            denum = denum * (&x_j - &x_m);
+        }
+        denum = denum
+            .invert()
+            .ifnone("AlgorithmException (VSS)", "denum is zero")?;
+        Ok(num * denum)
     }
 }
