@@ -19,3 +19,4 @@
 #![allow(clippy::type_complexity)]
 
 pub mod FeldmanVss;
+pub mod MultiPartyGG18;

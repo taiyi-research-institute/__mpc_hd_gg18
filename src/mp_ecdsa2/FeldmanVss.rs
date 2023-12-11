@@ -19,15 +19,8 @@ use curv::elliptic::curves::{Curve, Point, Scalar};
 /// [low degree exponent interpolation]: crate::cryptographic_primitives::proofs::low_degree_exponent_interpolation
 #[derive(Clone, Debug)]
 pub struct SecretShares<E: Curve> {
-    shares: HashMap<u16, Scalar<E>>,
-    polynomial: Polynomial<E>,
-}
-
-impl<E: Curve> SecretShares<E> {
-    /// Polynomial that was used to derive secret shares
-    pub fn polynomial(&self) -> &Polynomial<E> {
-        &self.polynomial
-    }
+    pub shares: HashMap<u16, Scalar<E>>,
+    pub polynomial: Polynomial<E>,
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -51,16 +44,15 @@ pub struct VerifiableSS<E: Curve> {
 impl<E: Curve> VerifiableSS<E> {
     // generate VerifiableSS from a secret
     pub fn share(
-        t: u16,
-        n: u16,
+        th: u16,
         secret: &Scalar<E>,
-        key_mates: &HashSet<u16>,
+        keygen_members: &HashSet<u16>,
     ) -> Outcome<(VerifiableSS<E>, SecretShares<E>)> {
-        assert_throw!(t < n);
+        assert_throw!(usize::from(th) < keygen_members.len());
 
-        let polynomial = Polynomial::<E>::sample_exact_with_fixed_const_term(t, secret.clone());
+        let polynomial = Polynomial::<E>::sample_exact_with_fixed_const_term(th, secret.clone());
         let mut shares: HashMap<u16, Scalar<E>> = HashMap::new();
-        for member_id in key_mates.iter() {
+        for member_id in keygen_members.iter() {
             shares.insert(*member_id, polynomial.evaluate_bigint(*member_id));
         }
 
@@ -71,8 +63,8 @@ impl<E: Curve> VerifiableSS<E> {
         }
         let vss = VerifiableSS {
             parameters: ShamirSecretSharing {
-                threshold: t,
-                share_count: n,
+                threshold: th,
+                share_count: keygen_members.len() as u16,
             },
             commitments,
         };
@@ -154,7 +146,7 @@ impl<E: Curve> VerifiableSS<E> {
     // used in http://stevengoldfeder.com/papers/GG18.pdf
     pub fn map_share_to_new_params(
         member_id: u16,
-        shard_providers: HashSet<u16>,
+        shard_providers: &HashSet<u16>,
     ) -> Outcome<Scalar<E>> {
         assert_throw!(shard_providers.contains(&member_id));
         let x: Scalar<E> = Scalar::zero();
